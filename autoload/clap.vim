@@ -135,7 +135,7 @@ function! clap#_exit() abort
   let g:clap.is_busy = 0
   let g:clap.display.cache = []
 
-  let g:__clap_lyre_matched = {}
+  let g:__clap_lyre_fuzzy_matched = {}
 
   call g:clap.input.clear()
   call g:clap.display.clear()

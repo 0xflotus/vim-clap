@@ -262,15 +262,8 @@ function! s:on_exit_common() abort
   endif
   call clap#spinner#set_idle()
 
-  if !empty(get(g:, '__clap_lyre_matched', {}))
-    for [lnum, indices] in items(g:__clap_lyre_matched)
-      for idx in indices
-        " if !has('nvim')
-          " silent! call clearmatches(g:clap.display.winid)
-        " endif
-        call clap#util#add_highlight_at(str2nr(lnum), idx)
-      endfor
-    endfor
+  if !empty(get(g:, '__clap_lyre_fuzzy_matched', []))
+    call clap#impl#add_highlight_for_fuzzy_indices()
   endif
 endfunction
 
