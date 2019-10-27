@@ -45,21 +45,6 @@ endfunction
 
 let s:files.sink = 'e'
 
-" function! s:files.source_async() abort
-  " let s:lnum = 0
-  " let g:to_match = {}
-  " return 'fd --type f | lyre '.g:clap.input.get()
-" endfunction
-
-" let s:ns_id = nvim_create_namespace('clap_matched')
-
-" function! s:files.converter(line) abort
-  " let json_decoded = json_decode(a:line)
-  " let g:to_match[s:lnum] = json_decoded.indices
-  " let s:lnum += 1
-  " return json_decoded.text
-" endfunction
-
 let s:files.enable_rooter = v:true
 
 let g:clap#provider#files# = s:files

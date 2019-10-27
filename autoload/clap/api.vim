@@ -393,8 +393,7 @@ function! s:init_provider() abort
 
   function! s:lyre_converter(line) abort
     let json_decoded = json_decode(a:line)
-    let g:__clap_lyre_matched[s:lyre_lnum] = json_decoded.indices
-    let s:lyre_lnum += 1
+    call add(g:__clap_lyre_matched, json_decoded.indices)
     return json_decoded.text
   endfunction
 
@@ -403,8 +402,7 @@ function! s:init_provider() abort
     let ext_filter_cmd = clap#filter#get_external_cmd_or_default()
 
     if ext_filter_cmd =~# '^lyre'
-      let s:lyre_lnum = 0
-      let g:__clap_lyre_matched = {}
+      let g:__clap_lyre_matched = []
       let Provider = g:clap.provider._()
       let Provider.converter = function('s:lyre_converter')
     endif

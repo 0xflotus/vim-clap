@@ -50,9 +50,9 @@ if has('nvim')
       call s:handle_cache(to_cache)
 
       " Converter
-      " if s:has_converter
-        " let to_append = map(to_append, 's:Converter(v:val)')
-      " endif
+      if s:has_converter
+        let to_append = map(to_append, 's:Converter(v:val)')
+      endif
 
       call g:clap.display.append_lines(to_append)
 
