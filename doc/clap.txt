@@ -23,7 +23,8 @@ CONTENTS                                                         *clap-contents*
     5.1 Highlights........................|clap-highlights|
   6. Provider Options.....................|clap-provider-options|
     6.1 Options for grep..................|clap-grep-options|
-    6.2 Other Provider Options............|clap-other-provider-options|
+    6.2 Options for yanks.................|clap-yanks-options|
+    6.3 Other Provider Options............|clap-other-provider-options|
   7. Commands.............................|clap-commands|
   8. Keybindings..........................|clap-keybindings|
   9. API..................................|clap-api|
@@ -58,54 +59,77 @@ to work everywhere out of the box, with fast response.
 
 
                                                     *:Clap-bcommits*
-:Clap bcommits           List git commits for the current buffer
+:Clap bcommits           List git commits for the current buffer.
                          Require `git`
 
 
                                                     *:Clap-blines*
-:Clap blines             List Lines in the current buffer
+:Clap blines             List Lines in the current buffer.
 
 
                                                     *:Clap-buffers*
-:Clap buffers            List open buffers
+:Clap buffers            List open buffers.
 
 
                                                     *:Clap-colors*
-:Clap colors             List Colorschemes
+:Clap colors             List Colorschemes.
+                         Support preview.
 
                                                     *:Clap-hist:*
                                                     *:Clap-command_history*
-:Clap hist:              List Command history
+:Clap hist:              List Command history.
 :Clap command_history
 
 
                                                     *:Clap-commits*
-:Clap commits            List Git commits
+:Clap commits            List Git commits.
                          Require `git`
 
                                                     *:Clap-files*
-:Clap files              List Files
-                         Require fd/git/rg/find
+:Clap files              List Files.
+                         Require `fd`/`rg`/`git`/`find`
+
+                         The order of default finder executable used
+                         for files is [ `fd`, `rg`, `git`, `find` ] .
+
+                         Use `++finder` to specify another finder
+                         executable for the files and pass the options
+                         after, e.g., `:Clap files ++finder=rg --files` means
+                         the actual command line used is `rg --files` .
+
+                         If you have `fd` installed, `:Clap files` is equivalent to
+                         `:Clap files ++finder=fd --type f` .
+
+                         For the `fd` and `rg` finder, you can pass
+                         `--hidden` to search the hidden files as well, i.e,
+                         `:Clap files --hidden` .
 
 
                                                      *:Clap-filetypes*
-:Clap filetypes          List File types
+:Clap filetypes          List File types.
 
 
                                                      *:Clap-gfiles*
                                                      *:Clap-git_files*
-:Clap gfiles             List Files managed by git
+:Clap gfiles             List Files managed by git.
 :Clap git_files          Require `git`
 
 
                                                      *:Clap-grep*
-:Clap grep               Grep on the fly. Use `Clap grep <cword>` to
-                         grep the word under cursor.
+:Clap grep               Grep on the fly.
                          Require `rg`
+
+                         Use `Clap grep ++query=<cword>` to grep
+                         the word under cursor.
+
+
+                                                      *:Clap-history*
+:Clap history           List the open buffers and |v:oldfiles|.
 
 
                                                      *:Clap-jumps*
 :Clap jumps              List Jumps
+                         Support preview
 
 
                                                      *:Clap-lines*
@@ -114,6 +138,7 @@ to work everywhere out of the box, with fast response.
 
                                                      *:Clap-marks*
 :Clap marks              List Marks
+                         Support preview
 
 
                                                      *:Clap-tags*
@@ -161,8 +186,17 @@ g:clap_popup_input_delay                              *g:clap_popup_input_delay*
   Default: `200`
 
   This variable controls the milliseconds delay after which the `on_typed` of
-  provider will be run after your input is changed. This option is only
-  meaningful for Vim, NeoVim does not have this delay.
+  provider will be run after your input is changed.
+
+  This option is only meaningful for Vim, NeoVim does not have this delay.
+
+g:clap_on_move_delay                                      *g:clap_on_move_delay*
+
+  Type: |Number|
+  Default: `300`
+
+  This variable controls the milliseconds delay after which the `on_move` of
+  provider will be run when you navigate the result list.
 
 
 g:clap_disable_optional_async                    *g:clap_disable_optional_async*
@@ -173,10 +207,18 @@ g:clap_disable_optional_async                    *g:clap_disable_optional_async*
   For the non-pure-async providers, vim-clap provides an optional async way to
   filter/find the candidates and will enable it automatically in these cases:
 
+  - the default `source_async` implementation is doable
   - `g:clap.context.async` is v:true
   - the `source` of provider is |String|
   - the `source` of provider is |List| and the size of source exceeds the
     threshold
+  - the `source` of provider is a |Funcref| that returns a |String| or
+    returns a |List| that exceeds the threshold.
+
+  If the provider does not provide the `source_async` implementation explictily
+  and vim-clap fails to inject the default async external filter implementation,
+  this variable has no effect, the sync filter implementation will always be
+  used.
 
 
 g:clap_no_matches_msg                                    *g:clap_no_matches_msg*
@@ -185,6 +227,7 @@ g:clap_no_matches_msg                                    *g:clap_no_matches_msg*
   Default: `"NO MATCHES FOUND"`
 
   This message will be used when there is no matches found.
+
 
 g:clap_dispatcher_drop_cache                      *g:clap_dispatcher_drop_cache*
 
@@ -197,10 +240,11 @@ g:clap_dispatcher_drop_cache                      *g:clap_dispatcher_drop_cache*
 
   Set this variable to `v:true` to save all the results, and then when you
   reach the end of the display window, the cached results will be loaded
-  automatically.
+  automatically. However, it may have some performance loss to cache all the
+  results especially when there are hundreds of thousands of results.
 
 
-g:clap_disable_run_from_project_root      *g:clap_disable_run_from_project_root*
+g:clap_disable_run_rooter                           *g:clap_disable_run_rooter*
 
   Type: |Bool|
   Default: `v:false`
@@ -237,6 +281,29 @@ g:clap_open_action                                         *g:clap_open_action*
 
   NOTE: do not define a key binding which is conflicted with the other
   default bindings of vim-clap, and only `ctrl-*` is supported for now.
+
+
+g:clap_search_box_border_symbols              *g:clap_search_box_border_symbols*
+
+  Type: |Dict|
+  Default: ` { 'arrow': ["\ue0b2", "\ue0b0"], 'curve': ["\ue0b6", "\ue0b4"], 'nil': ['', ''] }`
+
+  This variable defines the symbols that could be used for customizing the
+  search box border. See |g:clap_search_box_border_style| .
+
+  These two symbols must be symmetrically equal. Not every font and terminal
+  emulator can render these symbols perfectly. Use it at your own risk.
+
+
+g:clap_search_box_border_style                  *g:clap_search_box_border_style*
+
+  Type: |Dict|
+  Default: `exists('g:spacevim_nerd_fonts') || exists('g:airline_powerline_fonts') ? 'curve' : 'nil')`
+
+  This variable controls the style of border symbol used for the search box
+  window.
+
+  Set this variable to `nil` to disable the search box border symbol.
 
 
 -------------------------------------------------------------------------------
@@ -295,7 +362,18 @@ ClapMatches                                                          *ClapMatche
   The highlight for the first matched part.
 
 
-ClapNoMatchesFound                                       *ClapNClapNoMatchesFound*
+ClapMatches[1-8]                                                 *ClapMatches[1-8]*
+
+  `ClapMatches[1-8]` will be used for the matched substrings in the substring mode.
+
+
+ClapFuzzyMatches[1-12]                                     *ClapFuzzyMatches[1-12]*
+
+  `ClapFuzzyMatches[1-12]` will be used for highlighting the fuzzy matched
+  items.
+
+
+ClapNoMatchesFound                                        *ClapNClapNoMatchesFound*
 
   Default: `hi default link ClapNClapNoMatchesFound ErrorMsg`
 
@@ -330,9 +408,42 @@ g:clap_provider_grep_blink                         *g:clap_provider_grep_blink*
 
   Set it to `[0, 0]` to disable this blink.
 
+g:clap_provider_grep_opts                          *g:clap_provider_grep_opts*
+
+  Type: |String|
+  Default: `''`
+
+  Set this to control the extra arguments that get passed to the grep tool.
+  Setting `'--hidden -g "!.git/"'` for example would enable grepping hidden
+  files and folders while respecting your `.gitignore` and not showing the
+  `.git` directory itself.
+
+g:clap_provider_grep_enable_icon              *g:clap_provider_grep_enable_icon*
+
+  Type: |Number|
+  Default: `exists('g:loaded_webdevicons') || get(g:, 'spacevim_nerd_fonts', 0)`
+
+  Set this variable to `0` to disable drawing an icon for the returned result.
 
 -------------------------------------------------------------------------------
-6.2 Other Provider Options                          *clap-other-provider-options*
+6.2. Clap Yanks Options                                      *clap-yanks-options*
+
+g:clap_enable_yanks_provider                       *g:clap_enable_yanks_provider*
+
+  Type: |Number|
+  Default: `1`(enabled)
+
+  Set this variable to `0` to disable yanks provider.
+
+g:clap_provider_yanks_max_entries             *g:clap_provider_yanks_max_entries*
+
+  Type: |Number|
+  Default: `20`
+
+  Set this variable to limit maximum yanks entries.
+
+-------------------------------------------------------------------------------
+6.3 Other Provider Options                          *clap-other-provider-options*
 
 
 ===============================================================================
@@ -388,16 +499,51 @@ The form of `[++opt]` is `++{optname}={value}`, where {optname} is one of:
 ===============================================================================
 9. API                                                                *clap-api*
 
+
+g:clap                                                               *g:clap*
+
+
+g:clap.provider                                             *g:clap.provider*
+
+
+g:clap.input                                                   *g:clap.input*
+
+  `g:clap.input.goto_win()` - Go to input window with `noautocmd`.
+
+  `g:clap.input.getbufvar({varname}[, {def}])` - Similar to |getbufvar()| with
+  the buffer number is specified to the input buffer.
+
+  `g:clap.input.setbufvar({varname}, {val})` - Similar to |setbufvar()| with
+  the buffer number is specified to the input buffer.
+
+  `g:clap.input.get()` - Get the current input.
+
+
+g:clap.display                                               *g:clap.display*
+
+  `g:clap.display.goto_win()` - Go to display window with `noautocmd`.
+
+  `g:clap.display.get_lines()` - Get the current lines in display window.
+
+  `g:clap.display.getbufvar({varname}[, {def}])` - Similar to |getbufvar()| with
+  the buffer number is specified to the display buffer.
+
+  `g:clap.display.setbufvar({varname}, {val})` - Similar to |setbufvar()| with
+  the buffer number is specified to the display buffer.
+
+
 ClapOnEnter                                             *ClapOnEnter-autocmd*
                                                                 *ClapOnEnter*
 
-  TODO
+  This |User| autocommand is triggered immediately after the provider's
+  `on_enter` is run. You can use this autocommand to change the options of
+  clap related buffers and windows.
 
 
 ClapOnExit                                               *ClapOnExit-autocmd*
                                                                  *ClapOnExit*
 
-  TODO
+  This |User| autocommand is triggered when you exit the clap windows.
 
 
 ===============================================================================

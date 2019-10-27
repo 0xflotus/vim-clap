@@ -1,8 +1,8 @@
 " Author: liuchengxu <xuliuchengxlc@gmail.com>
 " Description: Utilities.
 
-let s:save_cpo = &cpo
-set cpo&vim
+let s:save_cpo = &cpoptions
+set cpoptions&vim
 
 let s:blink = {}
 
@@ -26,14 +26,15 @@ function! s:blink.clear() dict abort
   endif
 endfunction
 
-
 " Try to load the file into a buffer given the file path.
 " This could be used for the preview purpose.
 function! clap#util#try_load_file(file) abort
   if filereadable(expand(a:file))
     let bufnr = bufadd(a:file)
     if !bufloaded(bufnr)
-      silent call bufload(bufnr)
+      " Use noautocmd here as we actually only want to get the buffer text,
+      " otherwise some services may be started unexpected, e.g., LSP service.
+      noautocmd silent call bufload(bufnr)
     endif
     return bufnr
   else
@@ -103,9 +104,11 @@ endfunction
 " This is faster than clap#util#get_git_root() which uses the system call.
 function! clap#util#find_git_root(bufnr) abort
   let git_dir = clap#util#find_nearest_dir(a:bufnr, '.git')
+
   if !empty(git_dir)
     return fnamemodify(git_dir, ':h:h')
   endif
+
   return ''
 endfunction
 
@@ -125,12 +128,15 @@ function! clap#util#find_nearest_dir(bufnr, dir) abort
 endfunction
 
 " Argument: Funcref to run as well as its args
-function! clap#util#run_from_project_root(Run, ...) abort
-  if get(g:, 'clap_disable_run_from_project_root', v:false)
+function! clap#util#run_rooter(Run, ...) abort
+  if get(g:, 'clap_disable_run_rooter', v:false)
         \ || !g:clap.provider.has_enable_rooter()
+        \ || getbufvar(g:clap.start.bufnr, '&bt') ==# 'terminal'
     return call(a:Run, a:000)
   endif
+
   let git_root = clap#util#find_git_root(g:clap.start.bufnr)
+
   if empty(git_root)
     let result = call(a:Run, a:000)
   else
@@ -142,6 +148,7 @@ function! clap#util#run_from_project_root(Run, ...) abort
       execute 'lcd' save_cwd
     endtry
   endif
+
   return result
 endfunction
 
@@ -149,13 +156,21 @@ endfunction
 "
 " what if the sink function changes cwd intentionally? Then we
 " should not restore to the current cwd after executing the sink function.
-function! clap#util#run_from_project_root_heuristic(Run, ...) abort
+function! clap#util#run_rooter_heuristic(Run, ...) abort
+  if getbufvar(g:clap.start.bufnr, '&bt') ==# 'terminal'
+    return call(a:Run, a:000)
+  endif
+
   let git_root = clap#util#find_git_root(g:clap.start.bufnr)
+
   if empty(git_root)
-        \ || get(g:, 'clap_disable_run_from_project_root', v:false)
+        \ || get(g:, 'clap_disable_run_rooter', v:false)
         \ || !g:clap.provider.has_enable_rooter()
+
     let result = call(a:Run, a:000)
+
   else
+
     let save_cwd = getcwd()
     try
       execute 'lcd' git_root
@@ -169,13 +184,14 @@ function! clap#util#run_from_project_root_heuristic(Run, ...) abort
         execute 'lcd' save_cwd
       endif
     endtry
+
   endif
 endfunction
 
 " Define CTRL-T/X/V by default.
 function! clap#util#define_open_action_mappings() abort
   for k in keys(g:clap_open_action)
-    let lhs = substitute(toupper(k), "CTRL", "C", "")
+    let lhs = substitute(toupper(k), 'CTRL', 'C', '')
     execute 'inoremap <silent> <buffer> <'.lhs.'> <Esc>:call clap#handler#try_open("'.k.'")<CR>'
   endfor
 endfunction
@@ -184,17 +200,69 @@ function! clap#util#trim_leading(str) abort
   return substitute(a:str, '^\s*', '', '')
 endfunction
 
-function! clap#util#add_highlight_at(lnum, col) abort
-  call nvim_buf_add_highlight(g:clap.display.bufnr, -1, 'Search', a:lnum, a:col, a:col+1)
+" Given the origin lnum and the size of range, return
+" [origin_lnum-range_size, origin_lnum+range_size] and the target lnum that
+" the origin line should be positioned.
+" 0-based
+function! clap#util#get_preview_line_range(origin_lnum, range_size) abort
+  if a:origin_lnum - a:range_size > 0
+    return [a:origin_lnum - a:range_size, a:origin_lnum + a:range_size, a:range_size]
+  else
+    return [0, a:origin_lnum + a:range_size, a:origin_lnum]
+  endif
+endfunction
+
+function! clap#util#buflisted() abort
+  return filter(range(1, bufnr('$')), 'buflisted(v:val) && getbufvar(v:val, "&filetype") !=# "qf"')
+endfunction
+
+" Borrowed from fzf.vim
+function! s:sort_buffers(...) abort
+  let [b1, b2] = map(copy(a:000), 'get(g:__clap_buffers, v:val, v:val)')
+  " Using minus between a float and a number in a sort function causes an error
+  return b1 < b2 ? 1 : -1
+endfunction
+
+function! clap#util#buflisted_sorted() abort
+  return sort(clap#util#buflisted(), 's:sort_buffers')
 endfunction
 
 " TODO: expandcmd() 8.1.1510 https://github.com/vim/vim/commit/80dad48
 function! clap#util#expand(args) abort
-  if a:args == ['<cword>']
-    return [expand('<cword>')]
+  if a:args ==# '<cword>'
+    return expand('<cword>')
   endif
   return a:args
 endfunction
 
-let &cpo = s:save_cpo
+function! clap#util#getfsize(fname) abort
+  let l:size = getfsize(expand(a:fname))
+  if l:size == 0 || l:size == -1 || l:size == -2
+    return ''
+  endif
+  if l:size < 1024
+    let size = l:size.'B'
+  elseif l:size < 1024*1024
+    let size = printf('%.1f', l:size/1024.0) . 'K'
+  elseif l:size < 1024*1024*1024
+    let size = printf('%.1f', l:size/1024.0/1024.0) . 'M'
+  else
+    let size = printf('%.1f', l:size/1024.0/1024.0/1024.0) . 'G'
+  endif
+  return size
+endfunction
+
+if has('nvim')
+  " 0-based
+  function! clap#util#add_highlight_at(lnum, col, hl_group) abort
+    call nvim_buf_add_highlight(g:clap.display.bufnr, -1, a:hl_group, a:lnum, a:col, a:col+1)
+  endfunction
+else
+  function! clap#util#add_highlight_at(lnum, col, hl_group) abort
+    " 1-based
+    call prop_add(a:lnum+1, a:col+1, {'length': 1, 'type': a:hl_group, 'bufnr': g:clap.display.bufnr})
+  endfunction
+endif
+
+let &cpoptions = s:save_cpo
 unlet s:save_cpo

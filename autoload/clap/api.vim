@@ -1,12 +1,15 @@
 " Author: liuchengxu <xuliuchengxlc@gmail.com>
 " Description: Make a compatible layer between neovim and vim.
 
-let s:save_cpo = &cpo
-set cpo&vim
+let s:save_cpo = &cpoptions
+set cpoptions&vim
 
 let s:is_nvim = has('nvim')
 let s:default_priority = 10
 let s:cat_or_type = has('win32') ? 'type' : 'cat'
+
+let s:on_move_timer = -1
+let s:on_move_delay = get(g:, 'clap_on_move_delay', 300)
 
 function! s:_goto_win() dict abort
   noautocmd call win_gotoid(self.winid)
@@ -24,6 +27,19 @@ function! s:_setbufvar_batch(dict) dict abort
   call map(a:dict, { key, val -> setbufvar(self.bufnr, key, val) })
 endfunction
 
+function! clap#api#setbufvar_batch(bufnr, dict) abort
+  call map(a:dict, { key, val -> setbufvar(a:bufnr, key, val) })
+endfunction
+
+function! s:_system(cmd) abort
+  let lines = system(a:cmd)
+  if v:shell_error
+    call clap#error('Fail to run '.a:cmd)
+    return ['Fail to run '.a:cmd]
+  endif
+  return split(lines, "\n")
+endfunction
+
 if s:is_nvim
   function! s:_get_lines() dict abort
     return nvim_buf_get_lines(self.bufnr, 0, -1, 0)
@@ -37,26 +53,31 @@ endif
 
 function! s:matchadd(patterns) abort
   let w:clap_match_ids = []
-  call add(w:clap_match_ids, matchadd("ClapMatches", a:patterns[0], s:default_priority))
+  " Clap grep
+  " \{ -> E888
+  try
+    call add(w:clap_match_ids, matchadd('ClapMatches', a:patterns[0], s:default_priority))
+  catch
+    " Sometimes we may run into some pattern errors in that the query is not a
+    " valid vim pattern. Just ignore them as the highlight is not critical, we
+    " care more about the searched results IMO.
+    return
+  endtry
   let idx = 1
   " As most 8 submatches
   for p in a:patterns[1:8]
     try
-      call add(w:clap_match_ids, matchadd("ClapMatches".idx, p, s:default_priority - 1))
+      call add(w:clap_match_ids, matchadd('ClapMatches'.idx, p, s:default_priority - 1))
       let idx += 1
     catch
-      call clap#error(v:exception)
+      return
     endtry
   endfor
 endfunction
 
 function! s:init_display() abort
   let display = {}
-  let display.goto_win = function('s:_goto_win')
-  let display.get_lines = function('s:_get_lines')
-  let display.getbufvar = function('s:_getbufvar')
-  let display.setbufvar = function('s:_setbufvar')
-  let display.setbufvar_batch = function('s:_setbufvar_batch')
+  call s:inject_base_api(display)
   let display.cache = []
   let display.preload_capacity = 2 * &lines
 
@@ -173,7 +194,7 @@ function! s:init_display() abort
   function! display.set_lines_lazy(raw_lines) abort
     if len(a:raw_lines) >= g:clap.display.preload_capacity
       let to_set = a:raw_lines[:g:clap.display.preload_capacity-1]
-      let to_cache = a:raw_lines[g:clap.display.preload_capacity:]
+      let to_cache = a:raw_lines[g:clap.display.preload_capacity : ]
       call self.set_lines(to_set)
       let g:clap.display.cache = to_cache
     else
@@ -204,6 +225,9 @@ function! s:init_display() abort
   " Default: input
   function! display.add_highlight(...) abort
     let pattern = a:0 > 0 ? a:1 : clap#filter#matchadd_pattern()
+    if empty(pattern)
+      return
+    endif
     if type(pattern) != v:t_list
       let pattern = [pattern]
     endif
@@ -222,9 +246,7 @@ endfunction
 
 function! s:init_input() abort
   let input = {}
-  let input.getbufvar = function('s:_getbufvar')
-  let input.setbufvar = function('s:_setbufvar')
-  let input.setbufvar_batch = function('s:_setbufvar_batch')
+  call s:inject_base_api(input)
 
   if s:is_nvim
     let input.goto_win = function('s:_goto_win')
@@ -286,7 +308,7 @@ function! s:init_provider() abort
     elseif type(Sink) == v:t_string
       execute Sink a:selected
     else
-      call clap#error("sink can only be a funcref or string.")
+      call clap#error('sink can only be a funcref or string.')
     endif
   endfunction
 
@@ -296,7 +318,7 @@ function! s:init_provider() abort
 
   function! provider.sink(selected) abort
     call g:clap.start.goto_win()
-    call clap#util#run_from_project_root_heuristic(self._apply_sink, a:selected)
+    call clap#util#run_rooter_heuristic(self._apply_sink, a:selected)
   endfunction
 
   function! provider.sink_star(lines) abort
@@ -314,7 +336,9 @@ function! s:init_provider() abort
     try
       call self._().on_typed()
     catch
-      call g:clap.display.set_lines(['provider.on_typed: '.v:exception])
+      let l:error_info = ['provider.on_typed:'] + split(v:throwpoint, '\[\d\+\]\zs') + split(v:exception, "\n")
+      call g:clap.display.set_lines(l:error_info)
+      call g:clap#display_win.compact()
       call clap#spinner#set_idle()
     endtry
   endfunction
@@ -322,7 +346,10 @@ function! s:init_provider() abort
   " When you press Ctrl-J/K
   function! provider.on_move() abort
     if has_key(self._(), 'on_move')
-      call self._().on_move()
+      if s:on_move_timer != -1
+        call timer_stop(s:on_move_timer)
+      endif
+      let s:on_move_timer = timer_start(s:on_move_delay, { -> self._().on_move() })
     endif
   endfunction
 
@@ -350,13 +377,12 @@ function! s:init_provider() abort
     return get(self._(), 'support_open_action', v:false)
   endfunction
 
-  function! provider.apply_args() abort
-    if !empty(g:clap.provider.args)
-          \ && g:clap.provider.args[0] !~# '^+'
+  function! provider.apply_query() abort
+    if has_key(g:clap.context, 'query')
       if s:is_nvim
-        call feedkeys(join(g:clap.provider.args, ' '))
+        call feedkeys(g:clap.context.query)
       else
-        call g:clap.input.set(join(g:clap.provider.args, ' '))
+        call g:clap.input.set(g:clap.context.query)
         " Move the cursor to the end.
         call feedkeys("\<C-E>", 'xt')
       endif
@@ -372,35 +398,39 @@ function! s:init_provider() abort
     return json_decoded.text
   endfunction
 
+  " Pipe the source into the external filter
+  function! s:wrap_async_cmd(source_cmd) abort
+    let ext_filter_cmd = clap#filter#get_external_cmd_or_default()
+
+    if ext_filter_cmd =~# '^lyre'
+      let s:lyre_lnum = 0
+      let g:__clap_lyre_matched = {}
+      let Provider = g:clap.provider._()
+      let Provider.converter = function('s:lyre_converter')
+    endif
+
+    " FIXME Does it work well in Windows?
+    let cmd = a:source_cmd.' | '.ext_filter_cmd
+    return cmd
+  endfunction
+
   function! provider.source_async_or_default() abort
     if has_key(self._(), 'source_async')
       return self._().source_async()
     else
+
       let Source = self._().source
-      let source_ty = type(Source)
-      if source_ty == v:t_string
-        let ext_filter_cmd = clap#filter#get_external_cmd_or_default()
 
-        if ext_filter_cmd =~# '^lyre'
-          let s:lyre_lnum = 0
-          let g:__clap_lyre_matched = {}
-          let Provider = self._()
-          let Provider.converter = function('s:lyre_converter')
-        endif
-
-        " FIXME Does it work well in Windows?
-        let cmd = Source.' | '.ext_filter_cmd
-        return cmd
-      endif
-
-      if source_ty == v:t_func
-        let lines = Source()
-      elseif source_ty == v:t_list
+      if self.type == g:__t_string
+        return s:wrap_async_cmd(Source)
+      elseif self.type == g:__t_func_string
+        return s:wrap_async_cmd(Source())
+      elseif self.type == g:__t_list
         let lines = copy(Source)
-      else
-        call g:clap.abort("source_ty is neither func nor list, this should not happen")
-        return
+      elseif self.type == g:__t_func_list
+        let lines = copy(Source())
       endif
+
       let tmp = tempname()
       if writefile(lines, tmp) == 0
         let ext_filter_cmd = clap#filter#get_external_cmd_or_default()
@@ -408,9 +438,10 @@ function! s:init_provider() abort
         call add(g:clap.tmps, tmp)
         return cmd
       else
-        call g:clap.abort("Fail to write source to a temp file")
+        call g:clap.abort('Fail to write source to a temp file')
         return
       endif
+
     endif
   endfunction
 
@@ -418,29 +449,27 @@ function! s:init_provider() abort
     if has_key(self._(), 'source_async')
       return self._().source_async()
     else
-      call g:clap.abort("source_async is unavailable")
+      call g:clap.abort('source_async is unavailable')
       return
     endif
   endfunction
 
   function! provider._apply_source() abort
     let Source = self._().source
-    let source_ty = type(Source)
-    if source_ty == v:t_func
-      let lines = Source()
-    elseif source_ty == v:t_list
+
+    if self.type == g:__t_string
+      return s:_system(Source)
+    elseif self.type == g:__t_list
       " Use copy here, otherwise it could be one-off List.
       let lines = copy(Source)
-    elseif source_ty == v:t_string
-      let lines = system(Source)
-      if v:shell_error
-        call clap#error('Fail to run '.Source)
-        return ['Fail to run '.Source]
-      endif
-      return split(lines, "\n")
+    elseif self.type == g:__t_func_string
+      return s:_system(Source())
+    elseif self.type == g:__t_func_list
+      return copy(Source())
     else
-      return ['provider.get_source: this should not happen, source can only be a list, string or funcref']
+      return ['source() must return a List or a String if it is a Funcref']
     endif
+
     return lines
   endfunction
 
@@ -449,13 +478,14 @@ function! s:init_provider() abort
     " Catch any exceptions and show them in the display window.
     try
       if has_key(provider_info, 'source')
-        return clap#util#run_from_project_root(self._apply_source)
+        return clap#util#run_rooter(self._apply_source)
       else
         return []
       endif
     catch
       call clap#spinner#set_idle()
-      return ['provider.get_source: '.v:exception]
+      let tps = split(v:throwpoint, '\[\d\+\]\zs')
+      return ['provider.get_source:'] + tps + [v:exception]
     endtry
   endfunction
 
@@ -471,18 +501,36 @@ function! s:init_provider() abort
   " Since now we have the default source_async implementation, everything
   " could be async theoretically.
   "
-  " But the default async impl may not work in Windows at the moment,
-  " So we have a flag for people to disable it.
+  " But the default async impl may not work in Windows at the moment, and
+  " peple may not have installed the required external filter(fzy, fzf,
+  " etc.),
+  " So we should detect if the default async is doable or otherwise better
+  " have a flag to disable it.
   function! provider.can_async() abort
-    return !get(g:, 'clap_disable_optional_async', v:false)
+    " The default async implementation is not doable and the provider does not
+    " provide a source_async implementation explicitly.
+    if !clap#filter#has_external_default() && !has_key(self._(), 'source_async')
+      return v:false
+    else
+      return !get(g:, 'clap_disable_optional_async', v:false)
+    endif
   endfunction
 
   function! provider.init_display_win() abort
     if self.is_pure_async()
+          \ || self.type == g:__t_string
+          \ || self.type == g:__t_func_string
       return
     endif
+
     " Even for the syn providers that could have 10,000+ lines, it's ok to show it now.
-    let lines = self.get_source()
+    let Source = g:clap.provider._().source
+    if self.type == g:__t_list
+      let lines = Source
+    elseif self.type == g:__t_func_list
+      let lines = Source()
+    endif
+
     let initial_size = len(lines)
     let g:clap.display.initial_size = initial_size
     if initial_size > 0
@@ -536,5 +584,5 @@ function! clap#api#bake() abort
   call s:inject_base_api(g:clap.preview)
 endfunction
 
-let &cpo = s:save_cpo
+let &cpoptions = s:save_cpo
 unlet s:save_cpo

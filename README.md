@@ -1,7 +1,6 @@
 # vim-clap
 
-<!-- ![](https://github.com/liuchengxu/vim-clap/workflows/.github/workflows/ci.yml/badge.svg) -->
-[![Build Status](https://travis-ci.com/liuchengxu/vim-clap.svg?branch=master)](https://travis-ci.com/liuchengxu/vim-clap)
+[![CI](https://github.com/liuchengxu/vim-clap/workflows/ci/badge.svg)](https://github.com/liuchengxu/vim-clap/actions?workflow=ci)
 [![Gitter][G1]][G2]
 
 [G1]: https://badges.gitter.im/liuchengxu/vim-clap.svg
@@ -90,10 +89,12 @@ Command                                | List                               | Re
 `Clap filetypes`                       | File types                         | _none_
 `Clap gfiles` or `Clap git_files`      | Files managed by git               | **[git][git]**
 `Clap grep`**<sup>+</sup>**            | Grep on the fly                    | **[rg][rg]**
+`Clap history`                         | Open buffers and `v:oldfiles`      | _none_
 `Clap jumps`                           | Jumps                              | _none_
 `Clap lines`                           | Lines in the loaded buffers        | _none_
 `Clap marks`                           | Marks                              | _none_
 `Clap tags`                            | Tags in the current buffer         | **[vista.vim][vista.vim]**
+`Clap yanks`                           | Yank stack of the current vim session    | _none_
 `Clap windows` **<sup>!</sup>**        | Windows                            | _none_
 
 [fd]: https://github.com/sharkdp/fd
@@ -105,7 +106,7 @@ Command                                | List                               | Re
 
 - The command with a superscript `+` means that it supports multi-selection via <kbd>Tab</kbd>.
 
-- Use `Clap grep <cword>` to grep the word under cursor.
+- Use `:Clap grep ++query=<cword>` to grep the word under cursor.
 
 [Send a pull request](https://github.com/liuchengxu/vim-clap/pulls) if you want to get your provider listed here.
 
@@ -123,11 +124,11 @@ Command                                | List                               | Re
 
 - `g:clap_no_matches_msg`: String, "NO MATCHES FOUND", message to show when there is no matches found.
 
-- `g:clap_disable_run_from_project_root`: Bool, v:false, vim-clap by default will try to run from the project root by changing `cwd` temporarily. Set it to `v:true` to run from the origin `cwd`. The project root here means the git base directory. Create an issue if you want to see more support about the project root.
+- `g:clap_disable_run_rooter`: Bool, v:false, vim-clap by default will try to run from the project root by changing `cwd` temporarily. Set it to `v:true` to run from the origin `cwd`. The project root here means the git base directory. Create an issue if you want to see more support about the project root.
 
-- `g:clap_current_selection_sign_definition`: Dict, `{ 'text': '>>', 'texthl': "WarningMsg", "linehl": "ClapCurrentSelection"}`.
+- `g:clap_current_selection_sign`: Dict, `{ 'text': '>>', 'texthl': "WarningMsg", "linehl": "ClapCurrentSelection"}`.
 
-- `g:clap_selected_sign_definition`: Dict, `{ 'text': ' >', 'texthl': "WarningMsg", "linehl": "ClapSelected"}`.
+- `g:clap_selected_sign`: Dict, `{ 'text': ' >', 'texthl': "WarningMsg", "linehl": "ClapSelected"}`.
 
 - `g:clap_open_action`: Dict, `{ 'ctrl-t': 'tab split', 'ctrl-x': 'split', 'ctrl-v': 'vsplit' }`, extra key bindings for opening the selected file in a different way. NOTE: do not define a key binding which is conflicted with the other default bindings of vim-clap, and only `ctrl-*` is supported for now.
 
@@ -136,6 +137,7 @@ The option naming convention for provider is `g:clap_provider_{provider_id}_{opt
 - `g:clap_provider_grep_delay`: 300ms by default, delay for actually spawning the grep job in the background.
 
 - `g:clap_provider_grep_blink`: [2, 100] by default, blink 2 times with 100ms timeout when jumping the result. Set it to [0, 0] to disable the blink.
+- `g:clap_provider_grep_opts`: An empty string by default, allows you to enable flags such as `'--hidden -g "!.git/"'`.
 
 See `:help clap-options` for more information.
 
@@ -227,6 +229,8 @@ The form of `[++opt]` is `++{optname}={value}`, where {optname} is one of:
  - `+async`
 
 `Clap! [provider_id_or_alias]` is equal to `Clap [provider_id_or_alias] +async`.
+
+`++opt` and `+opt` will be stored in the Dict `g:clap.context`, the rest arguments will be stored in a List of String `g:clap.provider.args`.
 
 ### Create non-pure-async provider
 

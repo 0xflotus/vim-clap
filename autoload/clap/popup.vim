@@ -1,8 +1,8 @@
 " Author: liuchengxu <xuliuchengxlc@gmail.com>
 " Description: Vim popup UI and interaction.
 
-let s:save_cpo = &cpo
-set cpo&vim
+let s:save_cpo = &cpoptions
+set cpoptions&vim
 
 let s:input = ''
 let s:input_timer = -1
@@ -15,6 +15,10 @@ let g:clap#popup#input = {}
 let s:indicator_width = 10
 
 let s:exists_deoplete = exists('*deoplete#custom#buffer_option')
+
+let s:symbol_left = g:__clap_search_box_border_symbol.left
+let s:symbol_right = g:__clap_search_box_border_symbol.right
+let s:symbol_width = strdisplaywidth(s:symbol_right)
 
 "  ----------------------------------------
 " | spinner |     input        | indicator |
@@ -34,12 +38,12 @@ endfunction
 
 let s:display_opts = s:prepare_display_opts()
 
-function! s:reconfigure_display_opts() abort
+function! clap#popup#reconfigure_display_opts() abort
   let s:display_opts = s:prepare_display_opts()
 endfunction
 
 function! s:execute_in_display() abort
-  let w:clap_no_matches_id = matchadd("ClapNoMatchesFound", g:__clap_no_matches_pattern)
+  let w:clap_no_matches_id = matchadd('ClapNoMatchesFound', g:__clap_no_matches_pattern)
   setlocal signcolumn=yes
 endfunction
 
@@ -48,20 +52,20 @@ function! s:create_display() abort
     let col = &signcolumn ==# 'yes' ? 2 : 1
     let col += &number ? &numberwidth : 0
 
-    let s:display_winid = popup_create([], #{
-          \ zindex: 1000,
-          \ wrap: v:false,
-          \ mapping: v:false,
-          \ cursorline: 0,
-          \ filter: function('s:popup_filter'),
-          \ callback: function('s:callback'),
-          \ scrollbar: 0,
-          \ line: s:display_opts.row,
-          \ col: s:display_opts.col,
-          \ minwidth: s:display_opts.width,
-          \ maxwidth: s:display_opts.width,
-          \ maxheight: s:display_opts.height,
-          \ minheight: s:display_opts.height,
+    let s:display_winid = popup_create([], {
+          \ 'zindex': 1000,
+          \ 'wrap': v:false,
+          \ 'mapping': v:false,
+          \ 'cursorline': 0,
+          \ 'filter': function('s:popup_filter'),
+          \ 'callback': function('s:callback'),
+          \ 'scrollbar': 0,
+          \ 'line': s:display_opts.row,
+          \ 'col': s:display_opts.col,
+          \ 'minwidth': s:display_opts.width,
+          \ 'maxwidth': s:display_opts.width,
+          \ 'maxheight': s:display_opts.height,
+          \ 'minheight': s:display_opts.height,
           \ })
 
     let g:clap#popup#display.width = &columns * 2 / 3
@@ -92,6 +96,17 @@ function! g:clap#popup#display.compact_if_undersize() abort
   call s:try_adjust_preview()
 endfunction
 
+function! g:clap#popup#display.compact() abort
+  let pos = popup_getpos(s:display_winid)
+  let line_count = g:clap.display.line_count()
+  if pos.height != line_count
+    let pos.minheight = line_count
+    let pos.maxheight = line_count
+    call popup_move(s:display_winid, pos)
+    call s:try_adjust_preview()
+  endif
+endfunction
+
 function! s:try_adjust_preview() abort
   if exists('s:preview_winid') && !empty(popup_getpos(s:preview_winid))
     let pos = popup_getpos(s:display_winid)
@@ -107,15 +122,15 @@ function! s:create_preview() abort
     let col = pos.col
     let line = pos.line + pos.height
     let minwidth = pos.width
-    let s:preview_winid = popup_create([], #{
-          \ zindex: 100,
-          \ col: col,
-          \ line: line,
-          \ minwidth: minwidth,
-          \ maxwidth: minwidth,
-          \ wrap: v:false,
-          \ scrollbar: 0,
-          \ highlight: 'ClapPreview',
+    let s:preview_winid = popup_create([], {
+          \ 'zindex': 100,
+          \ 'col': col,
+          \ 'line': line,
+          \ 'minwidth': minwidth,
+          \ 'maxwidth': minwidth,
+          \ 'wrap': v:false,
+          \ 'scrollbar': 0,
+          \ 'highlight': 'ClapPreview',
           \ })
     call popup_hide(s:preview_winid)
     call win_execute(s:preview_winid, 'setlocal nonumber')
@@ -128,7 +143,7 @@ function! s:create_indicator() abort
   if !exists('s:indicator_winid') || empty(popup_getpos(s:indicator_winid))
     let pos = popup_getpos(s:display_winid)
     let pos.line = pos.line - 1
-    let pos.col = pos.col + pos.width - s:indicator_width
+    let pos.col = pos.col + pos.width - s:indicator_width - s:symbol_width
     let pos.minwidth = s:indicator_width
     let pos.maxwidth = s:indicator_width
     let pos.highlight = 'ClapInput'
@@ -140,16 +155,52 @@ function! s:create_indicator() abort
   endif
 endfunction
 
+function! s:create_symbol_right() abort
+  if s:symbol_width > 0
+    if !exists('s:symbol_right_winid') || empty(popup_getpos(s:symbol_right_winid))
+      let pos = popup_getpos(s:display_winid)
+      let pos.line = pos.line - 1
+      let pos.col = pos.col + pos.width - s:symbol_width
+      let pos.minwidth = s:symbol_width
+      let pos.maxwidth = pos.minwidth
+      let pos.highlight = 'ClapSymbol'
+      let pos.wrap = v:false
+      let pos.zindex = 100
+      let s:symbol_right_winid = popup_create(s:symbol_right, pos)
+      call popup_hide(s:symbol_right_winid)
+      call win_execute(s:symbol_right_winid, 'setlocal nonumber')
+    endif
+  endif
+endfunction
+
+function! s:create_symbol_left() abort
+  if s:symbol_width > 0
+    if !exists('s:symbol_left_winid') || empty(popup_getpos(s:symbol_left_winid))
+      let pos = popup_getpos(s:display_winid)
+      let pos.line = pos.line - 1
+      let pos.minwidth = s:symbol_width
+      let pos.maxwidth = pos.minwidth
+      let pos.highlight = 'ClapSymbol'
+      let pos.wrap = v:false
+      let pos.zindex = 100
+      let s:symbol_left_winid = popup_create(s:symbol_left, pos)
+      call popup_hide(s:symbol_left_winid)
+      call win_execute(s:symbol_left_winid, 'setlocal nonumber')
+    endif
+  endif
+endfunction
+
 function! s:create_spinner() abort
   if !exists('s:spinner_winid') || empty(popup_getpos(s:spinner_winid))
     let pos = popup_getpos(s:display_winid)
+    let pos.col += s:symbol_width
     let pos.line = pos.line - 1
     let pos.minwidth = clap#spinner#width() + 2
     let pos.maxwidth = pos.minwidth
     let pos.highlight = 'ClapSpinner'
     let pos.wrap = v:false
     let pos.zindex = 100
-    let s:spinner_winid = popup_create([], pos)
+    let s:spinner_winid = popup_create(clap#spinner#get(), pos)
     call popup_hide(s:spinner_winid)
     call win_execute(s:spinner_winid, 'setlocal nonumber')
     let g:clap_spinner_winid = s:spinner_winid
@@ -175,7 +226,7 @@ function! s:execute_in_input() abort
   let s:save_completeopt = &completeopt
   set completeopt=
   setlocal nonumber
-  let w:clap_query_hi_id = matchaddpos("ClapQuery", [1])
+  let w:clap_query_hi_id = matchaddpos('ClapQuery', [1])
   let b:coc_suggest_disable = 1
 endfunction
 
@@ -184,8 +235,8 @@ function! s:create_input() abort
     let pos = popup_getpos(s:display_winid)
     let pos.line = pos.line - 1
     let spinner_width = clap#spinner#width()
-    let pos.col += spinner_width
-    let pos.minwidth = s:display_opts.width - s:indicator_width - spinner_width
+    let pos.col += spinner_width + s:symbol_width
+    let pos.minwidth = s:display_opts.width - s:indicator_width - spinner_width - s:symbol_width
     let pos.maxwidth = pos.minwidth
     let pos.highlight = 'ClapInput'
     let pos.wrap = v:false
@@ -201,7 +252,7 @@ function! s:create_input() abort
   endif
 endfunction
 
-" Now we don't choose the hide way for the benefit of reusing the popup buffer,
+" Depreacted: Now we don't choose the hide way for the benefit of reusing the popup buffer,
 " for it could be very problematic.
 function! s:hide_all() abort
   call popup_hide(s:display_winid)
@@ -216,6 +267,12 @@ function! s:close_others() abort
   noautocmd call popup_close(s:indicator_winid)
   noautocmd call popup_close(s:input_winid)
   noautocmd call popup_close(s:spinner_winid)
+  if exists('s:symbol_left_winid')
+    noautocmd call popup_close(s:symbol_left_winid)
+  endif
+  if exists('s:symbol_right_winid')
+    noautocmd call popup_close(s:symbol_right_winid)
+  endif
 endfunction
 
 " This somehow doesn't get called if you don't map <C-C> to <C-[>.
@@ -225,7 +282,7 @@ function! s:callback(_id, _result) abort
 endfunction
 
 function! s:mock_input() abort
-  if s:input == ''
+  if s:input ==# ''
         \ || type(s:cursor_idx) ==# v:t_string
         \ || s:cursor_idx == strlen(s:input)
     let input = s:input.'|'
@@ -235,7 +292,7 @@ function! s:mock_input() abort
   elseif s:cursor_idx == 0
     let input = '|'.s:input
   else
-    let input = join([s:input[:s:cursor_idx-1], s:input[s:cursor_idx:]], '|')
+    let input = join([s:input[:s:cursor_idx-1], s:input[s:cursor_idx :]], '|')
   endif
   call popup_settext(s:input_winid, input)
 endfunction
@@ -250,7 +307,7 @@ function! g:clap#popup#preview.show(lines) abort
   let col = display_pos.col
   let line = display_pos.line + display_pos.height
   let minwidth = display_pos.width
-  call popup_move(s:preview_winid, #{col: col, line: line})
+  call popup_move(s:preview_winid, {'col': col, 'line': line})
 
   call popup_show(s:preview_winid)
   call popup_settext(s:preview_winid, a:lines)
@@ -286,7 +343,7 @@ function! s:move_manager.ctrl_b(_winid) abort
 endfunction
 
 function! s:move_manager.ctrl_g(_winid) abort
-  echom "Unimplemented: could be used for showing some useful env info"
+  echom 'Unimplemented: could be used for showing some useful env info'
 endfunction
 
 function! s:move_manager.ctrl_f(_winid) abort
@@ -319,7 +376,7 @@ function! s:move_manager.bs(_winid) abort
     let s:input = s:input[1:]
   else
     let truncated = s:input[:s:cursor_idx-2]
-    let remained = s:input[s:cursor_idx:]
+    let remained = s:input[s:cursor_idx :]
     let s:input = truncated.remained
   endif
   let s:cursor_idx -= 1
@@ -367,7 +424,7 @@ let s:move_manager["\<C-G>"] = s:move_manager.ctrl_g
 
 function! s:define_open_action_filter() abort
   for k in keys(g:clap_open_action)
-    let lhs = substitute(toupper(k), "CTRL", "C", "")
+    let lhs = substitute(toupper(k), 'CTRL', 'C', '')
     execute 'let s:move_manager["\<'.lhs.'>"] = { _winid -> clap#handler#try_open("'.k.'") }'
   endfor
 endfunction
@@ -376,7 +433,7 @@ call s:define_open_action_filter()
 
 function! s:move_manager.printable(key) abort
   let s:insert_at_the_begin = v:false
-  if s:input == '' || s:cursor_idx == strlen(s:input)
+  if s:input ==# '' || s:cursor_idx == strlen(s:input)
     let s:input .= a:key
     let s:cursor_idx += 1
   else
@@ -384,7 +441,7 @@ function! s:move_manager.printable(key) abort
       let s:input = a:key . s:input
       let s:insert_at_the_begin = v:true
     else
-      let s:input = s:input[:s:cursor_idx-1].a:key.s:input[s:cursor_idx:]
+      let s:input = s:input[:s:cursor_idx-1].a:key.s:input[s:cursor_idx :]
       let s:cursor_idx += 1
     endif
   endif
@@ -420,6 +477,10 @@ endfunction
 function! s:open_popup() abort
   call s:create_display()
 
+  if s:symbol_width > 0
+    call s:create_symbol_left()
+    call s:create_symbol_right()
+  endif
   call s:create_preview()
   call s:create_indicator()
   call s:create_input()
@@ -435,7 +496,12 @@ function! s:show_all() abort
   call popup_show(s:indicator_winid)
   call popup_show(s:input_winid)
   call popup_show(s:spinner_winid)
-  call popup_settext(s:spinner_winid, clap#spinner#get())
+  if exists('s:symbol_left_winid')
+    call popup_show(s:symbol_left_winid)
+  endif
+  if exists('s:symbol_right_winid')
+    call popup_show(s:symbol_right_winid)
+  endif
 endfunction
 
 function! clap#popup#get_input() abort
@@ -452,7 +518,7 @@ function! clap#popup#open() abort
 
   let g:clap_indicator_winid = s:indicator_winid
 
-  call g:clap.provider.init_display_win()
+  call clap#_init()
 
   " Currently the highlight can't be local in vim.
   " Remove this once vim support win local highlight.
@@ -462,24 +528,17 @@ function! clap#popup#open() abort
 
   hi! link SignColumn ClapDisplay
 
-  call g:clap.provider.on_enter()
-
   " TODO more roboust?
   augroup ClapEnsureAllClosed
     autocmd!
     autocmd BufEnter,WinEnter,WinLeave * call clap#popup#close()
   augroup END
 
-  if !exists('#ClapResize')
-    augroup ClapResize
-      autocmd!
-      autocmd VimResized * call s:reconfigure_display_opts()
-    augroup END
-  endif
+  call g:clap.provider.on_enter()
 
   silent doautocmd <nomodeline> User ClapOnEnter
 
-  call g:clap.provider.apply_args()
+  call g:clap.provider.apply_query()
 endfunction
 
 function! clap#popup#close() abort
@@ -504,5 +563,5 @@ function! clap#popup#close() abort
   silent autocmd! ClapEnsureAllClosed
 endfunction
 
-let &cpo = s:save_cpo
+let &cpoptions = s:save_cpo
 unlet s:save_cpo

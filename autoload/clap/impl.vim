@@ -1,8 +1,8 @@
 " Author: liuchengxu <xuliuchengxlc@gmail.com>
 " Description: Default implementation for various hooks.
 
-let s:save_cpo = &cpo
-set cpo&vim
+let s:save_cpo = &cpoptions
+set cpoptions&vim
 
 let s:is_nvim = has('nvim')
 let s:async_threshold = 5000
@@ -79,6 +79,7 @@ endfunction
 function! s:apply_source_async() abort
   let cmd = g:clap.provider.source_async_or_default()
   call clap#dispatcher#job_start(cmd)
+  call clap#spinner#set_busy()
 endfunction
 
 function! s:on_typed_async_impl() abort
@@ -91,9 +92,32 @@ function! s:on_typed_async_impl() abort
 
   call g:clap.display.clear()
 
-  call clap#util#run_from_project_root(function('s:apply_source_async'))
+  call clap#util#run_rooter(function('s:apply_source_async'))
 
   call g:clap.display.add_highlight(l:cur_input)
+endfunction
+
+" Choose the suitable way according to the source size.
+function! s:should_switch_to_async() abort
+  if g:clap.provider.is_pure_async()
+        \ || g:clap.provider.type == g:__t_string
+        \ || g:clap.provider.type == g:__t_func_string
+    return v:true
+  endif
+
+  let Source = g:clap.provider._().source
+
+  if g:clap.provider.type == g:__t_list
+    let s:cur_source = Source
+  elseif g:clap.provider.type == g:__t_func_list
+    let s:cur_source = Source()
+  endif
+
+  if len(s:cur_source) > s:async_threshold
+    return v:true
+  endif
+
+  return v:false
 endfunction
 
 "                          filter
@@ -111,20 +135,15 @@ function! clap#impl#on_typed() abort
     " Run async explicitly
     if get(g:clap.context, 'async') is v:true
       call s:on_typed_async_impl()
+    elseif s:should_switch_to_async()
+      call s:on_typed_async_impl()
     else
-      let source_ty = type(g:clap.provider._().source)
-      " Choose the suitable way according to the source size.
-      if source_ty == v:t_string
-            \ || (source_ty == v:t_list && len(g:clap.provider.get_source()) > s:async_threshold)
-        call s:on_typed_async_impl()
-      else
-        call s:on_typed_sync_impl()
-      endif
+      call s:on_typed_sync_impl()
     endif
   else
     call s:on_typed_sync_impl()
   endif
 endfunction
 
-let &cpo = s:save_cpo
+let &cpoptions = s:save_cpo
 unlet s:save_cpo

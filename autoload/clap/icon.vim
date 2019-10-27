@@ -1,8 +1,10 @@
 " Author: liuchengxu <xuliuchengxlc@gmail.com>
 " Description: Icon decorator, derived from vim-devicons.
 
-let s:save_cpo = &cpo
-set cpo&vim
+scriptencoding utf-8
+
+let s:save_cpo = &cpoptions
+set cpoptions&vim
 
 let g:clap#icon#default = ''
 
@@ -162,6 +164,24 @@ function! clap#icon#get(pattern) abort
   endif
 endfunction
 
+function! s:icon_for(k) abort
+  return get(g:clap#icon#extensions, a:k, g:clap#icon#default)
+endfunction
+
+function! clap#icon#for(bufname) abort
+  let ext = fnamemodify(expand(a:bufname), ':e')
+  if empty(ext)
+    let ft = getbufvar(a:bufname, '&ft')
+    if empty(ft)
+      return g:clap#icon#default
+    else
+      return s:icon_for(ft)
+    endif
+  else
+    return s:icon_for(ext)
+  endif
+endfunction
+
 function! clap#icon#get_all() abort
   let extensions = values(g:clap#icon#extensions)
   let exact_matches = values(g:clap#icon#exact_matches)
@@ -172,5 +192,5 @@ function! clap#icon#get_all() abort
   return uniq(all)
 endfunction
 
-let &cpo = s:save_cpo
+let &cpoptions = s:save_cpo
 unlet s:save_cpo

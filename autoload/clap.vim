@@ -1,8 +1,8 @@
 " Author: liuchengxu <xuliuchengxlc@gmail.com>
 " Description: Primiary code path for the plugin.
 
-let s:save_cpo = &cpo
-set cpo&vim
+let s:save_cpo = &cpoptions
+set cpoptions&vim
 
 if has('nvim')
   let s:has_features = has('nvim-0.4')
@@ -24,6 +24,12 @@ let s:builtin_providers = map(
 
 let g:clap#builtin_providers = s:builtin_providers
 
+let g:__t_func = 0
+let g:__t_string = 1
+let g:__t_list = 2
+let g:__t_func_string = 3
+let g:__t_func_list = 4
+
 let s:provider_alias = {
       \ 'hist:': 'command_history',
       \ 'gfiles': 'git_files',
@@ -33,6 +39,20 @@ let s:provider_alias = extend(s:provider_alias, get(g:, 'clap_provider_alias', {
 
 let g:clap_no_matches_msg = get(g:, 'clap_no_matches_msg', 'NO MATCHES FOUND')
 let g:__clap_no_matches_pattern = '^'.g:clap_no_matches_msg.'$'
+
+let s:default_symbols = {
+      \ 'arrow' : ["\ue0b2", "\ue0b0"],
+      \ 'curve' : ["\ue0b6", "\ue0b4"],
+      \ 'nil'   : ['', ''],
+      \ }
+
+let g:clap_search_box_border_symbols = extend(s:default_symbols, get(g:, 'clap_search_box_border_symbols', {}))
+let g:clap_search_box_border_style = get(g:, 'clap_search_box_border_style',
+      \ exists('g:spacevim_nerd_fonts') || exists('g:airline_powerline_fonts') ? 'curve' : 'nil')
+let g:__clap_search_box_border_symbol = {
+      \ 'left': get(g:clap_search_box_border_symbols, g:clap_search_box_border_style, '')[0],
+      \ 'right': get(g:clap_search_box_border_symbols, g:clap_search_box_border_style, '')[1],
+      \ }
 
 let s:default_action = {
   \ 'ctrl-t': 'tab split',
@@ -73,7 +93,35 @@ function! s:inject_default_impl_is_ok(provider_info) abort
 endfunction
 
 function! s:_sink(selected) abort
-  echom "_ unimplemented"
+  " a sink for "Clap _" (dispatch to other builtin clap providers).
+  call timer_start(0, {-> clap#_for(a:selected)})
+endfunction
+
+function! clap#_init() abort
+  if has_key(g:clap.provider._(), 'source')
+    let Source = g:clap.provider._().source
+    let source_ty = type(Source)
+
+    if source_ty == v:t_string
+      let g:clap.provider.type = g:__t_string
+    elseif source_ty == v:t_list
+      let g:clap.provider.type = g:__t_list
+    elseif source_ty == v:t_func
+      let string_or_list = Source()
+      if type(string_or_list) == v:t_string
+        let g:clap.provider.type = g:__t_func_string
+      elseif type(string_or_list) == v:t_list
+        let g:clap.provider.type = g:__t_func_list
+      else
+        call g:clap.abort('Must return a String or a List if source is a Funcref')
+        return
+      endif
+    endif
+  endif
+
+  call clap#spinner#init()
+
+  call g:clap.provider.init_display_win()
 endfunction
 
 function! clap#_exit() abort
@@ -100,6 +148,11 @@ function! clap#_exit() abort
   let g:clap.tmps = []
 
   silent doautocmd <nomodeline> User ClapOnExit
+endfunction
+
+function! clap#_for(provider_id_or_alias) abort
+  let g:clap.provider.args = []
+  call clap#for(a:provider_id_or_alias)
 endfunction
 
 " Sometimes we don't need to go back to the start window, hence clap#_exit() is extracted.
@@ -166,7 +219,7 @@ function! s:try_register_is_ok(provider_id) abort
     try
       let registration_info = g:clap#provider#{provider_id}#
     catch /^Vim\%((\a\+)\)\=:E121/
-      call clap#error("Fail to load the provider: ".provider_id)
+      call clap#error('Fail to load the provider: '.provider_id)
       return v:false
     endtry
   endif
@@ -177,10 +230,6 @@ function! s:try_register_is_ok(provider_id) abort
 
   let g:clap.registrar[provider_id] = {}
   call extend(g:clap.registrar[provider_id], registration_info)
-
-  if has_key(registration_info, 'alias')
-    let s:alias_cache[registration_info.alias] = provider_id
-  endif
 
   return s:validate_provider(registration_info)
 endfunction
@@ -214,7 +263,7 @@ function! s:parse_opts(args) abort
   let idx = 0
   for arg in a:args
     if arg =~? '^++\w*=\w*'
-      let matched = matchlist(arg, '^++\(\w*\)=\(\w*\)')
+      let matched = matchlist(arg, '^++\(\w*\)=\(\S*\)')
       let [k, v] = [matched[1], matched[2]]
       let g:clap.context[k] = v
     elseif arg =~? '^+\w*'
@@ -225,7 +274,10 @@ function! s:parse_opts(args) abort
     endif
     let idx += 1
   endfor
-  let g:clap.provider.args = clap#util#expand(a:args[idx:])
+  if has_key(g:clap.context, 'query')
+    let g:clap.context.query = clap#util#expand(g:clap.context.query)
+  endif
+  let g:clap.provider.args = a:args[idx :]
 endfunction
 
 function! clap#(bang, ...) abort
@@ -258,5 +310,5 @@ function! clap#(bang, ...) abort
   call clap#for(provider_id_or_alias)
 endfunction
 
-let &cpo = s:save_cpo
+let &cpoptions = s:save_cpo
 unlet s:save_cpo

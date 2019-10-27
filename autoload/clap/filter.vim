@@ -1,8 +1,8 @@
 " Author: liuchengxu <xuliuchengxlc@gmail.com>
 " Description: Filter out the candidate lines given input.
 
-let s:save_cpo = &cpo
-set cpo&vim
+let s:save_cpo = &cpoptions
+set cpoptions&vim
 
 let s:pattern_builder = {}
 
@@ -60,7 +60,11 @@ function! s:pattern_builder.build() abort
 endfunction
 
 function! clap#filter#matchadd_pattern() abort
-  return s:matchadd_pattern
+  return get(s:, 'matchadd_pattern', '')
+endfunction
+
+function! clap#filter#has_external_default() abort
+  return s:default_ext_filter isnot v:null
 endfunction
 
 function! clap#filter#get_external_cmd_or_default() abort
@@ -69,7 +73,7 @@ function! clap#filter#get_external_cmd_or_default() abort
   elseif has_key(g:clap.context, 'ef')
     let ext_filter = g:clap.context.ef
   elseif s:default_ext_filter is v:null
-    call g:clap.abort("No external filter available")
+    call g:clap.abort('No external filter available')
     return
   else
     let ext_filter = s:default_ext_filter
@@ -87,5 +91,5 @@ function! clap#filter#(lines, input) abort
   return filter(a:lines, 's:filter(v:val, l:filter_pattern)')
 endfunction
 
-let &cpo = s:save_cpo
+let &cpoptions = s:save_cpo
 unlet s:save_cpo
