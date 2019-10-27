@@ -99,13 +99,6 @@ function! s:on_typed_sync_impl() abort
 endfunction
 
 function! s:apply_add_fuzzy_highlight(hl_lines) abort
-  " Due the cache strategy, g:__clap_fuzzy_matched_indices may be oversize
-  " than the actual display buffer, the rest highlight indices of g:__clap_fuzzy_matched_indices
-  " belong to the cached lines.
-  "
-  " TODO: also add highlights for the cached lines?
-  let hl_lines = g:__clap_fuzzy_matched_indices[:g:clap.display.line_count()-1]
-
   if g:clap.provider.id ==# 'tags' && get(g:, 'vista#renderer#enable_icon', 0)
     let offset = 2
   else
