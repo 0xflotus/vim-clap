@@ -37,6 +37,28 @@ function! s:get_source() abort
   return l:lines
 endfunction
 
+function! s:refresh_matches_count(has_no_matches, matches_cnt_str) abort
+  " NOTE: some local variable without explicit l:, e.g., count,
+  " may run into some erratic read-only error.
+  if a:has_no_matches
+    if get(g:clap.display, 'initial_size', -1) > 0
+      let l:count = a:matches_cnt_str.'/'.g:clap.display.initial_size
+    else
+      let l:count = a:matches_cnt_str
+    endif
+    call clap#indicator#set_matches('['.l:count.']')
+    call clap#sign#disable_cursorline()
+  else
+    let l:matches_cnt = a:matches_cnt_str
+    if get(g:clap.display, 'initial_size', -1) > 0
+      let l:matches_cnt .= '/'.g:clap.display.initial_size
+    endif
+    call clap#indicator#set_matches('['.l:matches_cnt.']')
+    call clap#sign#reset_to_first_line()
+  endif
+
+endfunction
+
 function! s:on_typed_sync_impl() abort
   call g:clap.display.clear_highlight()
 
@@ -57,28 +79,12 @@ function! s:on_typed_sync_impl() abort
   if empty(l:lines)
     let l:lines = [g:clap_no_matches_msg]
     let l:has_no_matches = v:true
+    call s:refresh_matches_count(l:has_no_matches, '0')
+  else
+    call s:refresh_matches_count(l:has_no_matches, string(len(l:lines)))
   endif
 
   call g:clap.display.set_lines_lazy(lines)
-
-  " NOTE: some local variable without explicit l:, e.g., count,
-  " may run into some erratic read-only error.
-  if l:has_no_matches
-    if get(g:clap.display, 'initial_size', -1) > 0
-      let l:count = '0/'.g:clap.display.initial_size
-    else
-      let l:count = '0'
-    endif
-    call clap#indicator#set_matches('['.l:count.']')
-    call clap#sign#disable_cursorline()
-  else
-    let l:matches_cnt = string(len(l:lines))
-    if get(g:clap.display, 'initial_size', -1) > 0
-      let l:matches_cnt .= '/'.g:clap.display.initial_size
-    endif
-    call clap#indicator#set_matches('['.l:matches_cnt.']')
-    call clap#sign#reset_to_first_line()
-  endif
 
   call g:clap#display_win.compact_if_undersize()
   call clap#spinner#set_idle()
@@ -145,8 +151,9 @@ function! s:on_typed_async_impl() abort
   call g:clap.display.clear()
 
   call clap#util#run_rooter(function('s:apply_source_async'))
-
-  call g:clap.display.add_highlight(l:cur_input)
+  if !g:__clap_skip_add_highlight
+    call g:clap.display.add_highlight(l:cur_input)
+  endif
 endfunction
 
 " Choose the suitable way according to the source size.

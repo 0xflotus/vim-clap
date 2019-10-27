@@ -405,6 +405,9 @@ function! s:init_provider() abort
       let g:__clap_lyre_fuzzy_matched = []
       let Provider = g:clap.provider._()
       let Provider.converter = function('s:lyre_converter')
+      let g:__clap_skip_add_highlight = v:true
+    else
+      let g:__clap_skip_add_highlight = v:false
     endif
 
     " FIXME Does it work well in Windows?
