@@ -8,6 +8,8 @@ let s:job_timer = -1
 let s:dispatcher_delay = 300
 let s:job_id = -1
 
+let s:is_win = has('win32')
+
 let s:drop_cache = get(g:, 'clap_dispatcher_drop_cache', v:true)
 
 if has('nvim')
@@ -118,6 +120,7 @@ if has('nvim')
           \ 'on_exit': function('s:on_event'),
           \ 'on_stdout': function('s:on_event'),
           \ 'on_stderr': function('s:on_event'),
+          \ 'cwd': s:job_cwd(),
           \ })
   endfunction
 
@@ -225,13 +228,19 @@ else
   endfunction
 
   function! s:job_start(cmd) abort
-    let job = job_start(['bash', '-c', a:cmd], {
+    if s:is_win
+      let cmd = &shell . ' ' . &shellcmdflag . ' ' . a:cmd
+    else
+      let cmd = split(&shell) + split(&shellcmdflag) + [a:cmd]
+    endif
+    let job = job_start(cmd, {
           \ 'in_io': 'null',
           \ 'err_cb': function('s:err_cb'),
           \ 'out_cb': function('s:out_cb'),
           \ 'exit_cb': function('s:exit_cb'),
           \ 'close_cb': function('s:close_cb'),
           \ 'noblock': 1,
+          \ 'cwd': s:job_cwd(),
           \ })
     let s:job_id = s:parse_job_id(string(job))
   endfunction
@@ -275,8 +284,17 @@ function! s:has_no_matches() abort
   endif
 endfunction
 
+function! s:job_cwd() abort
+  if get(g:, 'clap_disable_run_rooter', v:false)
+    return getcwd()
+  else
+    let git_root = clap#util#find_git_root(g:clap.start.bufnr)
+    return empty(git_root) ? getcwd() : git_root
+  endif
+endfunction
+
 function! s:apply_job_start(_timer) abort
-  call clap#util#run_rooter(function('s:job_start'), s:cmd)
+  call s:job_start(s:cmd)
 
   let s:executed_time = strftime('%Y-%m-%d %H:%M:%S')
   let s:executed_cmd = s:cmd

@@ -37,26 +37,17 @@ function! s:get_source() abort
   return l:lines
 endfunction
 
-function! s:refresh_matches_count(has_no_matches, matches_cnt_str) abort
-  " NOTE: some local variable without explicit l:, e.g., count,
-  " may run into some erratic read-only error.
-  if a:has_no_matches
-    if get(g:clap.display, 'initial_size', -1) > 0
-      let l:count = a:matches_cnt_str.'/'.g:clap.display.initial_size
-    else
-      let l:count = a:matches_cnt_str
-    endif
-    call clap#indicator#set_matches('['.l:count.']')
-    call clap#sign#disable_cursorline()
-  else
-    let l:matches_cnt = a:matches_cnt_str
-    if get(g:clap.display, 'initial_size', -1) > 0
-      let l:matches_cnt .= '/'.g:clap.display.initial_size
-    endif
-    call clap#indicator#set_matches('['.l:matches_cnt.']')
-    call clap#sign#reset_to_first_line()
+" NOTE: some local variable without explicit l:, e.g., count,
+" may run into some erratic read-only error.
+function! clap#impl#refresh_matches_count(cnt_str) abort
+  let l:matches_cnt = a:cnt_str
+
+  if get(g:clap.display, 'initial_size', -1) > 0
+    let l:matches_cnt .= '/'.g:clap.display.initial_size
   endif
 
+  call clap#indicator#set_matches('['.l:matches_cnt.']')
+  call clap#sign#reset_to_first_line()
 endfunction
 
 function! s:on_typed_sync_impl() abort
@@ -79,9 +70,9 @@ function! s:on_typed_sync_impl() abort
   if empty(l:lines)
     let l:lines = [g:clap_no_matches_msg]
     let l:has_no_matches = v:true
-    call s:refresh_matches_count(l:has_no_matches, '0')
+    call clap#impl#refresh_matches_count('0')
   else
-    call s:refresh_matches_count(l:has_no_matches, string(len(l:lines)))
+    call clap#impl#refresh_matches_count(string(len(l:lines)))
   endif
 
   call g:clap.display.set_lines_lazy(lines)
@@ -98,27 +89,67 @@ function! s:on_typed_sync_impl() abort
   endif
 endfunction
 
-function! s:apply_add_fuzzy_highlight(hl_lines) abort
+if s:is_nvim
+  function! s:apply_add_fuzzy_highlight(hl_lines, offset) abort
+    " Currently neovim does not have win_execute()
+    " and the highlight added by nvim_buf_add_highlight()
+    " can be overrided by the sign's highlight.
+    "
+    " Once the default highlight priority of nvim_buf_add_highlight() is
+    " higher, we could use the same impl with vim's s:apply_highlight().
+
+    call g:clap.display.goto_win()
+    call clearmatches()
+
+    let lnum = 0
+    for indices in a:hl_lines
+      let group_idx = 1
+      for idx in indices
+        if group_idx < g:__clap_fuzzy_matches_hl_group_cnt + 1
+          call clap#util#add_match_at(lnum, idx+a:offset, 'ClapFuzzyMatches'.group_idx)
+          let group_idx += 1
+        else
+          call clap#util#add_match_at(lnum, idx+a:offset, g:__clap_fuzzy_last_hl_group)
+        endif
+      endfor
+      let lnum += 1
+    endfor
+
+    call g:clap.input.goto_win()
+  endfunction
+else
+  function! s:apply_add_fuzzy_highlight(hl_lines, offset) abort
+    let lnum = 0
+    for indices in a:hl_lines
+      let group_idx = 1
+      for idx in indices
+        if group_idx < g:__clap_fuzzy_matches_hl_group_cnt + 1
+          call clap#util#add_highlight_at(lnum, idx+a:offset, 'ClapFuzzyMatches'.group_idx)
+          let group_idx += 1
+        else
+          call clap#util#add_highlight_at(lnum, idx+a:offset, g:__clap_fuzzy_last_hl_group)
+        endif
+      endfor
+      let lnum += 1
+    endfor
+  endfunction
+endif
+
+function! s:add_highlight_for_fuzzy_matched() abort
+  " Due the cache strategy, g:__clap_fuzzy_matched_indices may be oversize
+  " than the actual display buffer, the rest highlight indices of g:__clap_fuzzy_matched_indices
+  " belong to the cached lines.
+  "
+  " TODO: also add highlights for the cached lines?
+  let hl_lines = g:__clap_fuzzy_matched_indices[:g:clap.display.line_count()-1]
+
   if g:clap.provider.id ==# 'tags' && get(g:, 'vista#renderer#enable_icon', 0)
     let offset = 2
   else
     let offset = 0
   endif
 
-  let lnum = 0
-
-  for indices in a:hl_lines
-    let group_idx = 1
-    for idx in indices
-      if group_idx < g:__clap_fuzzy_matches_hl_group_cnt + 1
-        call clap#util#add_highlight_at(lnum, idx+offset, 'ClapFuzzyMatches'.group_idx)
-        let group_idx += 1
-      else
-        call clap#util#add_highlight_at(lnum, idx+offset, 'ClapMatches')
-      endif
-    endfor
-    let lnum += 1
-  endfor
+  call s:apply_add_fuzzy_highlight(hl_lines, offset)
 endfunction
 
 function! s:add_highlight_for_fuzzy_matched() abort
@@ -140,12 +171,6 @@ endfunction
 " =======================================
 " async implementation
 " =======================================
-function! s:apply_source_async() abort
-  let cmd = g:clap.provider.source_async_or_default()
-  call clap#dispatcher#job_start(cmd)
-  call clap#spinner#set_busy()
-endfunction
-
 function! s:on_typed_async_impl() abort
   call g:clap.display.clear_highlight()
   let l:cur_input = g:clap.input.get()
@@ -156,10 +181,11 @@ function! s:on_typed_async_impl() abort
 
   call g:clap.display.clear()
 
-  call clap#util#run_rooter(function('s:apply_source_async'))
-  if !g:__clap_skip_add_highlight
-    call g:clap.display.add_highlight(l:cur_input)
-  endif
+  let cmd = g:clap.provider.source_async_or_default()
+  call clap#dispatcher#job_start(cmd)
+  call clap#spinner#set_busy()
+
+  call g:clap.display.add_highlight(l:cur_input)
 endfunction
 
 " Choose the suitable way according to the source size.

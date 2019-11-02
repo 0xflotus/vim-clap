@@ -141,6 +141,10 @@ to work everywhere out of the box, with fast response.
                          Support preview
 
 
+                                                     *:Clap-registers*
+:Clap registers          List Registers
+
+
                                                      *:Clap-tags*
 :Clap tags               List Tags in the current buffer
                          Require `vista.vim`
@@ -333,6 +337,15 @@ Define `g:clap_provider_{provider_id}` in your vimrc, e.g.,
 - autoload
 
 `g:clap#provider#{provider_id}#`. See `:h autoload` and autoload/clap/provider.vim.
+
+                                                    *clap-provider-description*
+
+Each autoload provider should start with these two comment lines, the
+Description line will be extracted as the brief introduction when displaying
+all the avaliable providers via `:Clap` .
+>
+  " Author: liuchengxu <xuliuchengxlc@gmail.com>
+  " Description: List the windows.
 
 
 ===============================================================================
@@ -648,6 +661,13 @@ g:clap_provider_yanks_max_entries             *g:clap_provider_yanks_max_entries
 
   Set this variable to limit maximum yanks entries.
 
+g:clap_provider_yanks_min_len             *g:clap_provider_yanks_min_len*
+
+  Type: |Number|
+  Default: `1`
+
+  Set minimum length of yanked text to be stored in yanks stack. Setting this
+  variable to less than 2 has no effect.
 
 -------------------------------------------------------------------------------
 6.3 Other Provider Options                          *clap-other-provider-options*
@@ -684,7 +704,7 @@ The form of `[++opt]` is `++{optname}={value}`, where {optname} is one of:
 
 - Use `Ctrl-e`/`End` to go to the end of the input.
 
-- Use `Ctrl-c`, `Ctrl-[` or `Esc` to exit.
+- Use `Ctrl-c`, `Ctrl-g`, `Ctrl-[` or `Esc` to exit.
 
 - Use `Ctrl-h`/`BS` to delete previous character.
 
